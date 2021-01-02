@@ -1,0 +1,316 @@
+/*!
+ * Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import * as assert from 'assert'
+import * as path from 'path'
+import * as vscode from 'vscode'
+
+import {
+    CloudFormationTemplateRegistry,
+    getResourcesAssociatedWithHandlerFromTemplateDatum,
+    getTemplatesAssociatedWithHandler,
+    TemplateDatum,
+} from '../../../shared/cloudformation/templateRegistry'
+import { rmrf } from '../../../shared/filesystem'
+import { makeTemporaryToolkitFolder } from '../../../shared/filesystemUtilities'
+import { assertThrowsError } from '../utilities/assertUtils'
+import { badYaml, makeSampleSamTemplateYaml, strToYamlFile } from './cloudformationTestUtils'
+import { assertEqualPaths } from '../../testUtil'
+import { CloudFormation } from '../../../shared/cloudformation/cloudformation'
+
+describe('CloudFormation Template Registry', async () => {
+    const goodYaml1 = makeSampleSamTemplateYaml(false)
+    const goodYaml2 = makeSampleSamTemplateYaml(true)
+
+    describe('CloudFormationTemplateRegistry', async () => {
+        let testRegistry: CloudFormationTemplateRegistry
+        let tempFolder: string
+
+        beforeEach(async () => {
+            tempFolder = await makeTemporaryToolkitFolder()
+            testRegistry = new CloudFormationTemplateRegistry()
+        })
+
+        afterEach(async () => {
+            await rmrf(tempFolder)
+        })
+
+        describe('addTemplateToRegistry', async () => {
+            it("adds data from a template to the registry and can receive the template's data", async () => {
+                const filename = vscode.Uri.file(path.join(tempFolder, 'template.yaml'))
+                await strToYamlFile(goodYaml1, filename.fsPath)
+                await testRegistry.addTemplateToRegistry(filename)
+
+                assert.strictEqual(testRegistry.registeredTemplates.length, 1)
+
+                const data = testRegistry.getRegisteredTemplate(filename.fsPath)
+
+                assertValidTestTemplate(data, filename.fsPath)
+            })
+
+            it('throws an error if the file to add is not a CF template', async () => {
+                const filename = vscode.Uri.file(path.join(tempFolder, 'template.yaml'))
+                await strToYamlFile(badYaml, filename.fsPath)
+
+                await assertThrowsError(
+                    async () => await testRegistry.addTemplateToRegistry(vscode.Uri.file(filename.fsPath))
+                )
+            })
+        })
+
+        describe('addTemplatesToRegistry', async () => {
+            it("adds data from multiple templates to the registry and can receive the templates' data", async () => {
+                const filename = vscode.Uri.file(path.join(tempFolder, 'template.yaml'))
+                await strToYamlFile(goodYaml1, filename.fsPath)
+                const filename2 = vscode.Uri.file(path.join(tempFolder, 'template2.yaml'))
+                await strToYamlFile(goodYaml2, filename2.fsPath)
+                await testRegistry.addTemplatesToRegistry([filename, filename2])
+
+                assert.strictEqual(testRegistry.registeredTemplates.length, 2)
+
+                const data = testRegistry.getRegisteredTemplate(filename.fsPath)
+                const data2 = testRegistry.getRegisteredTemplate(filename2.fsPath)
+
+                assertValidTestTemplate(data, filename.fsPath)
+                assertValidTestTemplate(data2, filename2.fsPath)
+            })
+
+            it('swallows errors if a template is not parseable while still parsing valid YAML', async () => {
+                const filename = vscode.Uri.file(path.join(tempFolder, 'template.yaml'))
+                await strToYamlFile(goodYaml1, filename.fsPath)
+                const badFilename = vscode.Uri.file(path.join(tempFolder, 'template2.yaml'))
+                await strToYamlFile(badYaml, badFilename.fsPath)
+                await testRegistry.addTemplatesToRegistry([filename, badFilename])
+
+                assert.strictEqual(testRegistry.registeredTemplates.length, 1)
+
+                const data = testRegistry.getRegisteredTemplate(filename.fsPath)
+
+                assertValidTestTemplate(data, filename.fsPath)
+            })
+        })
+
+        // other get cases are tested in the add section
+        describe('registeredTemplates', async () => {
+            it('returns an empty array if the registry has no registered templates', () => {
+                assert.strictEqual(testRegistry.registeredTemplates.length, 0)
+            })
+        })
+
+        // other get cases are tested in the add section
+        describe('getRegisteredTemplate', async () => {
+            it('returns undefined if the registry has no registered templates', () => {
+                assert.strictEqual(testRegistry.getRegisteredTemplate('/template.yaml'), undefined)
+            })
+
+            it('returns undefined if the registry does not contain the template in question', async () => {
+                const filename = vscode.Uri.file(path.join(tempFolder, 'template.yaml'))
+                await strToYamlFile(goodYaml1, filename.fsPath)
+                await testRegistry.addTemplateToRegistry(vscode.Uri.file(filename.fsPath))
+
+                assert.strictEqual(testRegistry.getRegisteredTemplate('/not-the-template.yaml'), undefined)
+            })
+        })
+
+        describe('removeTemplateFromRegistry', async () => {
+            it('removes an added template', async () => {
+                const filename = vscode.Uri.file(path.join(tempFolder, 'template.yaml'))
+                await strToYamlFile(goodYaml1, filename.fsPath)
+                await testRegistry.addTemplateToRegistry(vscode.Uri.file(filename.fsPath))
+                assert.strictEqual(testRegistry.registeredTemplates.length, 1)
+
+                testRegistry.removeTemplateFromRegistry(vscode.Uri.file(filename.fsPath))
+                assert.strictEqual(testRegistry.registeredTemplates.length, 0)
+            })
+
+            it('does not affect the registry if a nonexistant template is removed', async () => {
+                const filename = vscode.Uri.file(path.join(tempFolder, 'template.yaml'))
+                await strToYamlFile(goodYaml1, filename.fsPath)
+                await testRegistry.addTemplateToRegistry(vscode.Uri.file(filename.fsPath))
+                assert.strictEqual(testRegistry.registeredTemplates.length, 1)
+
+                testRegistry.removeTemplateFromRegistry(vscode.Uri.file(path.join(tempFolder, 'wrong-template.yaml')))
+                assert.strictEqual(testRegistry.registeredTemplates.length, 1)
+            })
+        })
+    })
+
+    // Consts for the non-class functions
+    const rootPath = path.join('i', 'am', 'your', 'father')
+    const nestedPath = path.join('s', 'brothers', 'nephews', 'cousins', 'former', 'roommate')
+    const otherPath = path.join('obi-wan', 'killed', 'your', 'father')
+    const matchingResource: {
+        Type: 'AWS::Serverless::Function'
+        Properties: CloudFormation.ResourceProperties
+    } = {
+        Type: 'AWS::Serverless::Function',
+        Properties: {
+            Handler: 'index.handler',
+            CodeUri: path.join(nestedPath),
+            Runtime: 'nodejs12.x',
+        },
+    }
+    const nonParentTemplate = {
+        path: path.join(otherPath, 'template.yaml'),
+        template: {},
+    }
+    const workingTemplate = {
+        path: path.join(rootPath, 'template.yaml'),
+        template: {
+            Resources: {
+                resource1: matchingResource,
+            },
+        },
+    }
+    const noResourceTemplate = {
+        path: path.join(rootPath, 'template.yaml'),
+        template: {
+            Resources: {},
+        },
+    }
+    const compiledResource: {
+        Type: 'AWS::Serverless::Function'
+        Properties: CloudFormation.ResourceProperties
+    } = {
+        Type: 'AWS::Serverless::Function',
+        Properties: {
+            Handler: 'Asdf::Asdf.Function::FunctionHandler',
+            CodeUri: path.join(nestedPath),
+            Runtime: 'dotnetcore3.1',
+        },
+    }
+    const dotNetTemplate = {
+        path: path.join(rootPath, 'template.yaml'),
+        template: {
+            Resources: {
+                resource1: compiledResource,
+            },
+        },
+    }
+    const multiResourceTemplate = {
+        path: path.join(rootPath, 'template.yaml'),
+        template: {
+            Resources: {
+                resource1: matchingResource,
+                resource2: {
+                    ...matchingResource,
+                    Properties: {
+                        ...matchingResource.Properties,
+                        Timeout: 5000,
+                    },
+                },
+            },
+        },
+    }
+    const badRuntimeTemplate = {
+        path: path.join(rootPath, 'template.yaml'),
+        template: {
+            Resources: {
+                badResource: {
+                    ...matchingResource,
+                    Properties: {
+                        ...matchingResource.Properties,
+                        Runtime: 'COBOL-60',
+                    },
+                },
+                goodResource: matchingResource,
+            },
+        },
+    }
+
+    describe('getTemplatesAssociatedWithHandler', () => {
+        it('returns an array containing TemplateDatum that contain references to the handler in question', () => {
+            const val = getTemplatesAssociatedWithHandler(path.join(rootPath, nestedPath, 'index.js'), 'handler', [
+                nonParentTemplate,
+                workingTemplate,
+                noResourceTemplate,
+                dotNetTemplate,
+                multiResourceTemplate,
+                badRuntimeTemplate,
+            ])
+
+            assert.deepStrictEqual(val, [workingTemplate, multiResourceTemplate, badRuntimeTemplate])
+        })
+    })
+
+    describe('getResourceAssociatedWithHandlerFromTemplateDatum', () => {
+        it('returns an empty array if the given template is not a parent of the handler file in question', () => {
+            const val = getResourcesAssociatedWithHandlerFromTemplateDatum(
+                path.join(rootPath, 'index.js'),
+                'handler',
+                nonParentTemplate
+            )
+
+            assert.deepStrictEqual(val, [])
+        })
+
+        it('returns an empty array if the template has no resources', () => {
+            const val = getResourcesAssociatedWithHandlerFromTemplateDatum(
+                path.join(rootPath, nestedPath, 'index.js'),
+                'handler',
+                noResourceTemplate
+            )
+
+            assert.deepStrictEqual(val, [])
+        })
+
+        it('returns a template resource if it has a matching handler', () => {
+            const val = getResourcesAssociatedWithHandlerFromTemplateDatum(
+                path.join(rootPath, nestedPath, 'index.js'),
+                'handler',
+                workingTemplate
+            )
+
+            assert.deepStrictEqual(val, [matchingResource])
+        })
+
+        it('ignores path handling if using a compiled language', () => {
+            const val = getResourcesAssociatedWithHandlerFromTemplateDatum(
+                path.join(rootPath, nestedPath, 'index.cs'),
+                'Asdf::Asdf.Function::FunctionHandler',
+                dotNetTemplate
+            )
+
+            assert.deepStrictEqual(val, [compiledResource])
+        })
+
+        it('returns all template resources if it has multiple matching handlers', () => {
+            const val = getResourcesAssociatedWithHandlerFromTemplateDatum(
+                path.join(rootPath, nestedPath, 'index.js'),
+                'handler',
+                multiResourceTemplate
+            )
+
+            assert.deepStrictEqual(val, [
+                matchingResource,
+                {
+                    ...matchingResource,
+                    Properties: {
+                        ...matchingResource.Properties,
+                        Timeout: 5000,
+                    },
+                },
+            ])
+        })
+
+        it('does not break if the resource has a non-parseable runtime', () => {
+            const val = getResourcesAssociatedWithHandlerFromTemplateDatum(
+                path.join(rootPath, nestedPath, 'index.js'),
+                'handler',
+                badRuntimeTemplate
+            )
+
+            assert.deepStrictEqual(val, [matchingResource])
+        })
+    })
+})
+
+function assertValidTestTemplate(data: TemplateDatum | undefined, filename: string): void {
+    assert.ok(data)
+    if (data) {
+        assertEqualPaths(data.path, filename)
+        assert.ok(data.template.Resources?.TestResource)
+    }
+}

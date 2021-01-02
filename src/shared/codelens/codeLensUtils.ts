@@ -1,0 +1,391 @@
+/*!
+ * Copyright 2018-2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import * as path from 'path'
+import * as vscode from 'vscode'
+
+import { Set as ImmutableSet } from 'immutable'
+import { CloudFormation } from '../cloudformation/cloudformation'
+import { LambdaHandlerCandidate } from '../lambdaHandlerSearch'
+import { getLogger } from '../logger'
+import { localize } from '../utilities/vsCodeUtils'
+import * as pythonDebug from '../sam/debugger/pythonSamDebug'
+import * as pythonCodelens from './pythonCodeLensProvider'
+import * as csharpCodelens from './csharpCodeLensProvider'
+import * as tsCodelens from './typescriptCodeLensProvider'
+import { LambdaLocalInvokeParams } from '../sam/localLambdaRunner'
+import { ExtContext } from '../extensions'
+import { recordLambdaInvokeLocal, Result, Runtime } from '../telemetry/telemetry'
+import { nodeJsRuntimes, RuntimeFamily } from '../../lambda/models/samLambdaRuntime'
+import { CODE_TARGET_TYPE, TEMPLATE_TARGET_TYPE } from '../sam/debugger/awsSamDebugConfiguration'
+import { getReferencedHandlerPaths, LaunchConfiguration } from '../debug/launchConfiguration'
+import * as pathutils from '../utilities/pathUtils'
+import {
+    getResourcesAssociatedWithHandlerFromTemplateDatum,
+    getTemplatesAssociatedWithHandler,
+} from '../cloudformation/templateRegistry'
+import { createQuickPick, promptUser, verifySinglePickerOutput } from '../ui/picker'
+import {
+    addSamDebugConfiguration,
+    AddSamDebugConfigurationInput,
+} from '../sam/debugger/commands/addSamDebugConfiguration'
+
+export type Language = 'python' | 'javascript' | 'csharp'
+
+export async function makeCodeLenses({
+    document,
+    token,
+    handlers,
+    runtimeFamily,
+}: {
+    document: vscode.TextDocument
+    token: vscode.CancellationToken
+    handlers: LambdaHandlerCandidate[]
+    runtimeFamily: RuntimeFamily
+}): Promise<vscode.CodeLens[]> {
+    const workspaceFolder: vscode.WorkspaceFolder | undefined = vscode.workspace.getWorkspaceFolder(document.uri)
+
+    if (!workspaceFolder) {
+        throw new Error(`Source file ${document.uri} is external to the current workspace.`)
+    }
+
+    const lenses: vscode.CodeLens[] = []
+    const existingConfigs = getReferencedHandlerPaths(new LaunchConfiguration(document.uri))
+    for (const handler of handlers) {
+        // handler.range is a RangeOrCharOffset union type. Extract vscode.Range.
+        const range =
+            handler.range instanceof vscode.Range
+                ? handler.range
+                : new vscode.Range(
+                      document.positionAt(handler.range.positionStart),
+                      document.positionAt(handler.range.positionEnd)
+                  )
+
+        try {
+            const associatedTemplates = getTemplatesAssociatedWithHandler(handler.filename, handler.handlerName)
+            let filteredRuntimes: ImmutableSet<Runtime> | undefined
+            const templateConfigs: AddSamDebugConfigurationInput[] = []
+
+            if (associatedTemplates.length > 0) {
+                const runtimes: Runtime[] = []
+                for (const templateDatum of associatedTemplates) {
+                    // TODO: This pulls all resources without vetting from the resources below. May want to break this down a bit...
+                    if (templateDatum.template.Resources) {
+                        for (const resourceName of Object.keys(templateDatum.template.Resources)) {
+                            templateConfigs.push({
+                                resourceName,
+                                rootUri: vscode.Uri.file(templateDatum.path),
+                            })
+                        }
+                    }
+
+                    runtimes.push(
+                        ...getResourcesAssociatedWithHandlerFromTemplateDatum(
+                            handler.filename,
+                            handler.handlerName,
+                            templateDatum
+                        )
+                            .map(resource => {
+                                return (
+                                    (CloudFormation.getStringForProperty(
+                                        resource.Properties?.Runtime,
+                                        templateDatum.template
+                                    ) as Runtime) ?? ''
+                                )
+                            })
+                            .filter(resource => resource.length > 0)
+                    )
+                }
+                filteredRuntimes = ImmutableSet(runtimes)
+            }
+            const codeConfig: AddSamDebugConfigurationInput = {
+                resourceName: handler.handlerName,
+                rootUri: handler.manifestUri,
+                runtimeFamily,
+                filteredRuntimes,
+            }
+            // TODO: Get this to also hide based on matching template-type configs?
+            if (
+                !existingConfigs.has(
+                    pathutils.normalize(path.join(path.dirname(codeConfig.rootUri.fsPath), codeConfig.resourceName))
+                )
+            ) {
+                lenses.push(makeAddCodeSamDebugCodeLens(range, codeConfig, templateConfigs))
+            }
+        } catch (err) {
+            getLogger().error(
+                `Could not generate 'configure' code lens for handler '${handler.handlerName}': %O`,
+                err as Error
+            )
+        }
+    }
+
+    return lenses
+}
+
+export function getInvokeCmdKey(language: Language) {
+    return `aws.lambda.local.invoke.${language}`
+}
+
+function makeAddCodeSamDebugCodeLens(
+    range: vscode.Range,
+    codeConfig: AddSamDebugConfigurationInput,
+    templateConfigs: AddSamDebugConfigurationInput[]
+): vscode.CodeLens {
+    const command: vscode.Command = {
+        title: localize('AWS.command.addSamDebugConfiguration', 'Add Debug Configuration'),
+        command: 'aws.pickAddSamDebugConfiguration',
+        // Values provided by makeTypescriptCodeLensProvider(),
+        // makeCSharpCodeLensProvider(), makePythonCodeLensProvider().
+        arguments: [codeConfig, templateConfigs],
+    }
+
+    return new vscode.CodeLens(range, command)
+}
+
+/**
+ * Wraps the addSamDebugConfiguration logic in a picker that lets the user choose
+ * to create a code-type debug config or a template-type debug config using a selected template
+ * TODO: Localize
+ * @param codeConfig
+ * @param templateConfigs
+ */
+export async function pickAddSamDebugConfiguration(
+    codeConfig: AddSamDebugConfigurationInput,
+    templateConfigs: AddSamDebugConfigurationInput[]
+): Promise<void> {
+    if (templateConfigs.length === 0) {
+        await addSamDebugConfiguration(codeConfig, CODE_TARGET_TYPE)
+
+        return
+    }
+
+    const templateItemsMap = new Map<string, AddSamDebugConfigurationInput>()
+    const templateItems: vscode.QuickPickItem[] = templateConfigs.map(templateConfig => {
+        const label = `${templateConfig.rootUri.fsPath}:${templateConfig.resourceName}`
+        templateItemsMap.set(label, templateConfig)
+        return { label }
+    })
+    const picker = createQuickPick<vscode.QuickPickItem>({
+        options: {
+            canPickMany: false,
+            ignoreFocusOut: false,
+            matchOnDetail: true,
+            title: 'Create a Debug Configuration with a CloudFormation Template',
+        },
+        items: [
+            ...templateItems,
+            {
+                label: 'No Template',
+                detail:
+                    'Launch config will execute function in isolation, without referencing a CloudFormation template',
+            },
+        ],
+    })
+
+    const choices = await promptUser({ picker })
+    const val = verifySinglePickerOutput(choices)
+
+    if (!val) {
+        return undefined
+    }
+    if (val.label === 'No Template') {
+        await addSamDebugConfiguration(codeConfig, CODE_TARGET_TYPE)
+    } else {
+        const templateItem = templateItemsMap.get(val.label)
+        if (!templateItem) {
+            return undefined
+        }
+        await addSamDebugConfiguration(templateItem, TEMPLATE_TARGET_TYPE)
+    }
+}
+
+export async function makePythonCodeLensProvider(): Promise<vscode.CodeLensProvider> {
+    const logger = getLogger()
+
+    return {
+        // CodeLensProvider
+        provideCodeLenses: async (
+            document: vscode.TextDocument,
+            token: vscode.CancellationToken
+        ): Promise<vscode.CodeLens[]> => {
+            // Try to activate the Python Extension before requesting symbols from a python file
+            await pythonDebug.activatePythonExtensionIfInstalled()
+            if (token.isCancellationRequested) {
+                return []
+            }
+
+            const handlers: LambdaHandlerCandidate[] = await pythonCodelens.getLambdaHandlerCandidates(document.uri)
+            logger.debug(
+                'pythonCodeLensProvider.makePythonCodeLensProvider handlers: %s',
+                JSON.stringify(handlers, undefined, 2)
+            )
+
+            return makeCodeLenses({
+                document,
+                handlers,
+                token,
+                runtimeFamily: RuntimeFamily.Python,
+            })
+        },
+    }
+}
+
+export async function makeCSharpCodeLensProvider(): Promise<vscode.CodeLensProvider> {
+    const logger = getLogger()
+
+    return {
+        provideCodeLenses: async (
+            document: vscode.TextDocument,
+            token: vscode.CancellationToken
+        ): Promise<vscode.CodeLens[]> => {
+            const handlers: LambdaHandlerCandidate[] = await csharpCodelens.getLambdaHandlerCandidates(document)
+            logger.debug('makeCSharpCodeLensProvider handlers: %s', JSON.stringify(handlers, undefined, 2))
+
+            return makeCodeLenses({
+                document,
+                handlers,
+                token,
+                runtimeFamily: RuntimeFamily.DotNetCore,
+            })
+        },
+    }
+}
+
+export function makeTypescriptCodeLensProvider(): vscode.CodeLensProvider {
+    const logger = getLogger()
+
+    return {
+        provideCodeLenses: async (
+            document: vscode.TextDocument,
+            token: vscode.CancellationToken
+        ): Promise<vscode.CodeLens[]> => {
+            const handlers = await tsCodelens.getLambdaHandlerCandidates(document)
+            logger.debug('makeTypescriptCodeLensProvider handlers:', JSON.stringify(handlers, undefined, 2))
+
+            return makeCodeLenses({
+                document,
+                handlers,
+                token,
+                runtimeFamily: RuntimeFamily.NodeJS,
+            })
+        },
+    }
+}
+
+export async function initializePythonCodelens(context: ExtContext): Promise<void> {
+    context.extensionContext.subscriptions.push(
+        vscode.commands.registerCommand(
+            getInvokeCmdKey('python'),
+            async (params: LambdaLocalInvokeParams): Promise<void> => {
+                // TODO: restore or remove
+            }
+        )
+    )
+}
+
+export async function initializeCsharpCodelens(context: ExtContext): Promise<void> {
+    context.extensionContext.subscriptions.push(
+        vscode.commands.registerCommand(
+            getInvokeCmdKey(csharpCodelens.CSHARP_LANGUAGE),
+            async (params: LambdaLocalInvokeParams) => {
+                // await csharpDebug.invokeCsharpLambda({
+                //     ctx: context,
+                //     config: undefined,
+                //     lambdaLocalInvokeParams: params,
+                // })
+            }
+        )
+    )
+}
+
+/**
+ * LEGACY/DEPRECATED codelens-based debug entrypoint.
+ */
+export function initializeTypescriptCodelens(context: ExtContext): void {
+    // const processInvoker = new DefaultValidatingSamCliProcessInvoker({}),
+    // const localInvokeCommand = new DefaultSamLocalInvokeCommand(getChannelLogger(context.outputChannel), [
+    //     WAIT_FOR_DEBUGGER_MESSAGES.NODEJS
+    // ])
+    const invokeLambda = async (params: LambdaLocalInvokeParams & { runtime: string }) => {
+        // const samProjectCodeRoot = await getSamProjectDirPathForFile(params.uri.fsPath)
+        // let debugPort: number | undefined
+        // if (params.isDebug) {
+        //     debugPort = await getStartPort()
+        // }
+        // const debugConfig: NodejsDebugConfiguration = {
+        //     type: 'node',
+        //     request: 'attach',
+        //     name: 'SamLocalDebug',
+        //     preLaunchTask: undefined,
+        //     address: 'localhost',
+        //     port: debugPort!,
+        //     localRoot: samProjectCodeRoot,
+        //     remoteRoot: '/var/task',
+        //     protocol: 'inspector',
+        //     skipFiles: ['/var/runtime/node_modules/**/*.js', '<node_internals>/**/*.js']
+        // }
+        // const localLambdaRunner: LocalLambdaRunner = new LocalLambdaRunner(
+        //     configuration,
+        //     params,
+        //     debugPort,
+        //     params.runtime,
+        //     toolkitOutputChannel,
+        //     processInvoker,
+        //     localInvokeCommand,
+        //     debugConfig,
+        //     samProjectCodeRoot,
+        //     telemetryService
+        // )
+        // await localLambdaRunner.run()
+    }
+
+    const command = getInvokeCmdKey('javascript')
+    context.extensionContext.subscriptions.push(
+        vscode.commands.registerCommand(command, async (params: LambdaLocalInvokeParams) => {
+            const logger = getLogger()
+
+            const resource = await CloudFormation.getResourceFromTemplate({
+                handlerName: params.handlerName,
+                templatePath: params.samTemplate.fsPath,
+            })
+            const template = await CloudFormation.load(params.samTemplate.fsPath)
+            const lambdaRuntime = CloudFormation.getRuntime(resource, template)
+            let invokeResult: Result = 'Succeeded'
+            try {
+                if (!nodeJsRuntimes.has(lambdaRuntime)) {
+                    invokeResult = 'Failed'
+                    logger.error(
+                        `Javascript local invoke on ${params.uri.fsPath} encountered` +
+                            ` unsupported runtime ${lambdaRuntime}`
+                    )
+
+                    vscode.window.showErrorMessage(
+                        localize(
+                            'AWS.samcli.local.invoke.runtime.unsupported',
+                            'Unsupported {0} runtime: {1}',
+                            'javascript',
+                            lambdaRuntime
+                        )
+                    )
+                } else {
+                    await invokeLambda({
+                        runtime: lambdaRuntime,
+                        ...params,
+                    })
+                }
+            } catch (err) {
+                invokeResult = 'Failed'
+                throw err
+            } finally {
+                recordLambdaInvokeLocal({
+                    result: invokeResult,
+                    runtime: lambdaRuntime as Runtime,
+                    debug: params.isDebug,
+                })
+            }
+        })
+    )
+}
