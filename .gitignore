@@ -1,0 +1,23 @@
+out
+dist
+node_modules
+.coverage/
+.vscode-test/
+*.vsix
+**/.DS_Store
+.idea
+telemetryCache
+quickStart.html
+.gitcommit
+media/libs/
+
+# Auto generated definitions
+src/**/*.gen.ts
+# Telemetry definition for testing adding telemetry
+src/shared/telemetry/vscodeTelemetry.json
+
+# Test reports
+.test-reports/
+
+# Auto generated Service Clients
+src/shared/telemetry/clienttelemetry.d.ts
