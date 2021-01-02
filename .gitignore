@@ -1,0 +1,13 @@
+out
+node_modules
+.coverage/
+.vscode-test/
+*.vsix
+**/.DS_Store
+.idea
+telemetryCache
+quickStart.html
+.gitcommit
+
+# Auto generated Service Clients
+src/shared/telemetry/clienttelemetry.d.ts
