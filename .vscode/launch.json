@@ -1,0 +1,93 @@
+// A launch configuration that compiles the extension and then opens it inside a new window
+// Use IntelliSense to learn about possible attributes.
+// Hover to view descriptions of existing attributes.
+// For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Extension",
+            "type": "extensionHost",
+            "request": "launch",
+            "runtimeExecutable": "${execPath}",
+            "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
+            "env": {
+                "AWS_TOOLKIT_IGNORE_WEBPACK_BUNDLE": "true"
+            },
+            "outFiles": ["${workspaceFolder}/dist/**/*.js"],
+            "preLaunchTask": "npm: watch"
+        },
+        {
+            "name": "Attach to ASL Server",
+            "type": "node",
+            "request": "attach",
+            "port": 6009,
+            "restart": true,
+            "outFiles": ["${workspaceRoot}/dist/src/stepFunctions/amazonStatesLanguage/server.js"]
+        },
+        {
+            "name": "Extension (webpack)",
+            "type": "extensionHost",
+            "request": "launch",
+            "runtimeExecutable": "${execPath}",
+            "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
+            "outFiles": ["${workspaceFolder}/dist/**/*.js"],
+            "preLaunchTask": "npm: compile"
+        },
+        {
+            "name": "Extension Tests",
+            "type": "extensionHost",
+            "request": "launch",
+            "runtimeExecutable": "${execPath}",
+            "args": [
+                "--extensionDevelopmentPath=${workspaceFolder}",
+                "--extensionTestsPath=${workspaceFolder}/dist/src/test/index"
+            ],
+            "env": {
+                "TEST_REPORT_DIR": "${workspaceFolder}/.test-reports",
+                "TEST_FILE": "null",
+                "AWS_TOOLKIT_IGNORE_WEBPACK_BUNDLE": "true",
+                "NO_COVERAGE": "true"
+            },
+            "outFiles": ["${workspaceFolder}/dist/src/test/**/*.js"],
+            "preLaunchTask": "${defaultBuildTask}"
+        },
+        {
+            "name": "Extension Tests (current file)",
+            "type": "extensionHost",
+            "request": "launch",
+            "runtimeExecutable": "${execPath}",
+            "args": [
+                "--extensionDevelopmentPath=${workspaceFolder}",
+                "--extensionTestsPath=${workspaceFolder}/dist/src/test/index.js"
+            ],
+            "env": {
+                "TEST_REPORT_DIR": "${workspaceFolder}/.test-reports",
+                "TEST_FILE": "${relativeFileDirname}/${fileBasenameNoExtension}",
+                "AWS_TOOLKIT_IGNORE_WEBPACK_BUNDLE": "true",
+                "NO_COVERAGE": "true"
+            },
+            "outFiles": ["${workspaceFolder}/dist/src/test/**/*.js"],
+            "preLaunchTask": "${defaultBuildTask}"
+        },
+        {
+            "name": "Integration Tests",
+            "type": "extensionHost",
+            "request": "launch",
+            "runtimeExecutable": "${execPath}",
+            "args": [
+                "${workspaceFolder}/dist/src/testFixtures/workspaceFolder",
+                "--extensionDevelopmentPath=${workspaceFolder}",
+                "--extensionTestsPath=${workspaceFolder}/dist/src/integrationTest/index.js"
+            ],
+            "env": {
+                "TEST_REPORT_DIR": "${workspaceFolder}/.test-reports",
+                "TEST_FILE": "null",
+                "AWS_TOOLKIT_IGNORE_WEBPACK_BUNDLE": "true",
+                "NO_COVERAGE": "true"
+            },
+            "outFiles": ["${workspaceFolder}/dist/src/integrationTest/**/*.js"],
+            "preLaunchTask": "npm: testCompile"
+        }
+    ]
+}
