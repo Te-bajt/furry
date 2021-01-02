@@ -1,0 +1,957 @@
+{
+    "name": "aws-toolkit-vscode",
+    "displayName": "AWS Toolkit",
+    "description": "An extension for working with Amazon Web Services",
+    "version": "1.10.0-SNAPSHOT",
+    "publisher": "amazonwebservices",
+    "license": "Apache-2.0",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/aws/aws-toolkit-vscode"
+    },
+    "engines": {
+        "vscode": "^1.43.0"
+    },
+    "icon": "resources/aws-icon-256x256.png",
+    "bugs": {
+        "url": "https://github.com/aws/aws-toolkit-vscode/issues"
+    },
+    "galleryBanner": {
+        "color": "#FF9900",
+        "theme": "light"
+    },
+    "categories": [
+        "Debuggers",
+        "Other"
+    ],
+    "keywords": [
+        "AWS",
+        "Lambda",
+        "Serverless"
+    ],
+    "preview": false,
+    "qna": "https://github.com/aws/aws-toolkit-vscode/issues",
+    "activationEvents": [
+        "onDebugResolve:aws-sam",
+        "onCommand:aws.login",
+        "onCommand:aws.credential.profile.create",
+        "onCommand:aws.logout",
+        "onCommand:aws.createIssueOnGitHub",
+        "onCommand:aws.submitFeedback",
+        "onCommand:aws.showRegion",
+        "onCommand:aws.hideRegion",
+        "onView:aws.explorer",
+        "onCommand:aws.deploySamApplication",
+        "onCommand:aws.samcli.detect",
+        "onCommand:aws.lambda.createNewSamApp",
+        "onDebugInitialConfigurations",
+        "onCommand:aws.viewLogs",
+        "onCommand:aws.quickStart",
+        "onCommand:aws.help",
+        "onCommand:aws.github",
+        "onCommand:aws.previewStateMachine",
+        "onCommand:aws.stepfunctions.createStateMachineFromTemplate",
+        "onCommand:aws.stepfunctions.publishStateMachine",
+        "onView:aws.cdk.explorer",
+        "onCommand:aws.refreshCdkExplorer",
+        "onCommand:aws.aboutToolkit",
+        "onLanguage:asl"
+    ],
+    "main": "./extensionMain",
+    "contributes": {
+        "configuration": {
+            "type": "object",
+            "title": "%AWS.configuration.title%",
+            "properties": {
+                "aws.profile": {
+                    "type": "string",
+                    "default": "",
+                    "description": "%AWS.configuration.profileDescription%"
+                },
+                "aws.onDefaultRegionMissing": {
+                    "type": "string",
+                    "default": "prompt",
+                    "markdownDescription": "%AWS.configuration.description.onDefaultRegionMissing%"
+                },
+                "aws.sam.template.depth": {
+                    "type": "number",
+                    "default": 4,
+                    "description": "%AWS.configuration.sam.template.depth%"
+                },
+                "aws.samcli.location": {
+                    "type": "string",
+                    "default": "",
+                    "markdownDescription": "%AWS.configuration.description.samcli.location%"
+                },
+                "aws.samcli.debug.attach.retry.maximum": {
+                    "type": "number",
+                    "default": 30,
+                    "description": "%AWS.configuration.description.samcli.debug.attach.retry.maximum%"
+                },
+                "aws.samcli.debug.attach.timeout.millis": {
+                    "type": "number",
+                    "default": 30000,
+                    "markdownDescription": "%AWS.configuration.description.samcli.debug.attach.timeout%"
+                },
+                "aws.cdk.explorer.enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "%AWS.configuration.description.cdk.explorer.enabled%"
+                },
+                "aws.logLevel": {
+                    "type": "string",
+                    "default": "info",
+                    "enum": [
+                        "error",
+                        "warn",
+                        "info",
+                        "verbose"
+                    ],
+                    "enumDescriptions": [
+                        "Errors Only",
+                        "Errors and Warnings",
+                        "Errors, Warnings, and Info",
+                        "Errors, Warnings, Info, and Verbose"
+                    ],
+                    "markdownDescription": "%AWS.configuration.description.logLevel%"
+                },
+                "aws.telemetry": {
+                    "type": "boolean",
+                    "default": true,
+                    "markdownDescription": "%AWS.configuration.description.telemetry%"
+                },
+                "aws.stepfunctions.asl.format.enable": {
+                    "type": "boolean",
+                    "scope": "window",
+                    "default": true,
+                    "description": "%AWS.stepFunctions.asl.format.enable.desc%"
+                },
+                "aws.stepfunctions.asl.maxItemsComputed": {
+                    "type": "number",
+                    "default": 5000,
+                    "description": "%AWS.stepFunctions.asl.maxItemsComputed.desc%"
+                }
+            }
+        },
+        "debuggers": [
+            {
+                "type": "aws-sam",
+                "label": "%AWS.configuration.description.awssam.debug.label%",
+                "configurationAttributes": {
+                    "direct-invoke": {
+                        "$schema": "http://json-schema.org/draft-07/schema#",
+                        "title": "AwsSamDebuggerConfiguration",
+                        "additionalProperties": false,
+                        "properties": {
+                            "aws": {
+                                "title": "AWS Connection",
+                                "description": "%AWS.configuration.description.awssam.debug.aws%",
+                                "properties": {
+                                    "credentials": {
+                                        "description": "%AWS.configuration.description.awssam.debug.credentials%",
+                                        "type": "string"
+                                    },
+                                    "region": {
+                                        "description": "%AWS.configuration.description.awssam.debug.region%",
+                                        "type": "string"
+                                    }
+                                },
+                                "additionalProperties": false,
+                                "type": "object"
+                            },
+                            "invokeTarget": {
+                                "oneOf": [
+                                    {
+                                        "title": "Template Target Properties",
+                                        "description": "%AWS.configuration.description.awssam.debug.invokeTarget%",
+                                        "properties": {
+                                            "samTemplatePath": {
+                                                "description": "%AWS.configuration.description.awssam.debug.samTemplatePath%",
+                                                "type": "string"
+                                            },
+                                            "samTemplateResource": {
+                                                "description": "%AWS.configuration.description.awssam.debug.samTemplateResource%",
+                                                "type": "string"
+                                            },
+                                            "target": {
+                                                "description": "%AWS.configuration.description.awssam.debug.target%",
+                                                "type": "string",
+                                                "enum": [
+                                                    "template"
+                                                ]
+                                            }
+                                        },
+                                        "additionalProperties": false,
+                                        "required": [
+                                            "samTemplatePath",
+                                            "samTemplateResource",
+                                            "target"
+                                        ],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "title": "Code Target Properties",
+                                        "description": "%AWS.configuration.description.awssam.debug.invokeTarget%",
+                                        "properties": {
+                                            "lambdaHandler": {
+                                                "description": "%AWS.configuration.description.awssam.debug.lambdaHandler%",
+                                                "type": "string"
+                                            },
+                                            "projectRoot": {
+                                                "description": "%AWS.configuration.description.awssam.debug.projectRoot%",
+                                                "type": "string"
+                                            },
+                                            "target": {
+                                                "description": "%AWS.configuration.description.awssam.debug.target%",
+                                                "type": "string",
+                                                "enum": [
+                                                    "code"
+                                                ]
+                                            }
+                                        },
+                                        "additionalProperties": false,
+                                        "required": [
+                                            "lambdaHandler",
+                                            "projectRoot",
+                                            "target"
+                                        ],
+                                        "type": "object"
+                                    }
+                                ]
+                            },
+                            "lambda": {
+                                "title": "Lambda Properties",
+                                "description": "%AWS.configuration.description.awssam.debug.lambda%",
+                                "properties": {
+                                    "environmentVariables": {
+                                        "description": "%AWS.configuration.description.awssam.debug.envvars%",
+                                        "additionalProperties": {
+                                            "type": [
+                                                "string",
+                                                "number",
+                                                "boolean"
+                                            ]
+                                        },
+                                        "type": "object"
+                                    },
+                                    "event": {
+                                        "description": "%AWS.configuration.description.awssam.debug.event%",
+                                        "properties": {
+                                            "json": {
+                                                "additionalProperties": {
+                                                    "type": [
+                                                        "string",
+                                                        "number",
+                                                        "boolean"
+                                                    ]
+                                                },
+                                                "type": "object"
+                                            },
+                                            "path": {
+                                                "description": "%AWS.configuration.description.awssam.debug.event.path%",
+                                                "type": "string"
+                                            }
+                                        },
+                                        "additionalProperties": false,
+                                        "type": "object"
+                                    },
+                                    "memoryMb": {
+                                        "description": "%AWS.configuration.description.awssam.debug.memoryMb%",
+                                        "type": "number"
+                                    },
+                                    "runtime": {
+                                        "description": "%AWS.configuration.description.awssam.debug.runtime%",
+                                        "type": "string"
+                                    },
+                                    "timeoutSec": {
+                                        "description": "%AWS.configuration.description.awssam.debug.timeout%",
+                                        "type": "number"
+                                    }
+                                },
+                                "additionalProperties": false,
+                                "type": "object"
+                            },
+                            "sam": {
+                                "title": "SAM CLI Properties",
+                                "description": "%AWS.configuration.description.awssam.debug.sam%",
+                                "properties": {
+                                    "buildArguments": {
+                                        "description": "%AWS.configuration.description.awssam.debug.buildArguments%",
+                                        "type": "string"
+                                    },
+                                    "containerBuild": {
+                                        "description": "%AWS.configuration.description.awssam.debug.containerBuild%",
+                                        "type": "boolean"
+                                    },
+                                    "dockerNetwork": {
+                                        "description": "%AWS.configuration.description.awssam.debug.dockerNetwork%",
+                                        "type": "string"
+                                    },
+                                    "localArguments": {
+                                        "description": "%AWS.configuration.description.awssam.debug.localArguments%",
+                                        "type": "string"
+                                    },
+                                    "skipNewImageCheck": {
+                                        "description": "%AWS.configuration.description.awssam.debug.skipNewImageCheck%",
+                                        "type": "boolean"
+                                    },
+                                    "template": {
+                                        "properties": {
+                                            "parameters": {
+                                                "additionalProperties": {
+                                                    "type": [
+                                                        "string",
+                                                        "number",
+                                                        "boolean"
+                                                    ]
+                                                },
+                                                "type": "object"
+                                            }
+                                        },
+                                        "type": "object",
+                                        "additionalProperties": false
+                                    }
+                                },
+                                "additionalProperties": false,
+                                "type": "object"
+                            }
+                        },
+                        "required": [
+                            "invokeTarget"
+                        ],
+                        "type": "object"
+                    }
+                },
+                "configurationSnippets": [
+                    {
+                        "label": "%AWS.configuration.description.awssam.debug.snippets.lambdaCode.label%",
+                        "description": "%AWS.configuration.description.awssam.debug.snippets.lambdaCode.description%",
+                        "body": {
+                            "type": "aws-sam",
+                            "request": "direct-invoke",
+                            "name": "${3:Invoke Lambda}",
+                            "invokeTarget": {
+                                "target": "code",
+                                "lambdaHandler": "${1:Function Handler}",
+                                "projectRoot": "^\"\\${workspaceFolder}\""
+                            },
+                            "lambda": {
+                                "runtime": "${2:Lambda Runtime}",
+                                "event": {
+                                    "json": {}
+                                }
+                            }
+                        }
+                    },
+                    {
+                        "label": "%AWS.configuration.description.awssam.debug.snippets.lambdaTemplate.label%",
+                        "description": "%AWS.configuration.description.awssam.debug.snippets.lambdaTemplate.description%",
+                        "body": {
+                            "type": "aws-sam",
+                            "request": "direct-invoke",
+                            "name": "${3:Invoke Lambda}",
+                            "invokeTarget": {
+                                "target": "template",
+                                "samTemplatePath": "${1:Template Location}",
+                                "samTemplateResource": "${2:Function Logical ID}"
+                            },
+                            "lambda": {
+                                "event": {
+                                    "json": {}
+                                }
+                            }
+                        }
+                    }
+                ]
+            }
+        ],
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "aws-explorer",
+                    "title": "%AWS.title%",
+                    "icon": "media/aws-logo.svg"
+                }
+            ]
+        },
+        "views": {
+            "aws-explorer": [
+                {
+                    "id": "aws.explorer",
+                    "name": "%AWS.lambda.explorerTitle%"
+                }
+            ],
+            "explorer": [
+                {
+                    "id": "aws.cdk.explorer",
+                    "name": "%AWS.cdk.explorerTitle%",
+                    "when": "config.aws.cdk.explorer.enabled"
+                }
+            ]
+        },
+        "menus": {
+            "commandPalette": [
+                {
+                    "command": "aws.deleteCloudFormation",
+                    "when": "false"
+                },
+                {
+                    "command": "aws.downloadStateMachineDefinition",
+                    "when": "false"
+                },
+                {
+                    "command": "aws.executeStateMachine",
+                    "when": "false"
+                },
+                {
+                    "command": "aws.copyArn",
+                    "when": "false"
+                },
+                {
+                    "command": "aws.downloadSchemaItemCode",
+                    "when": "false"
+                },
+                {
+                    "command": "aws.deleteLambda",
+                    "when": "false"
+                },
+                {
+                    "command": "aws.invokeLambda",
+                    "when": "false"
+                },
+                {
+                    "command": "aws.viewSchemaItem",
+                    "when": "false"
+                },
+                {
+                    "command": "aws.searchSchema",
+                    "when": "false"
+                },
+                {
+                    "command": "aws.searchSchemaPerRegistry",
+                    "when": "false"
+                },
+                {
+                    "command": "aws.refreshAwsExplorer",
+                    "when": "false"
+                },
+                {
+                    "command": "aws.refreshCdkExplorer",
+                    "when": "false"
+                },
+                {
+                    "command": "aws.cdk.provideFeedback",
+                    "when": "false"
+                },
+                {
+                    "command": "aws.showErrorDetails",
+                    "when": "false"
+                }
+            ],
+            "editor/title": [
+                {
+                    "command": "aws.previewStateMachine",
+                    "when": "editorLangId == asl",
+                    "group": "navigation"
+                }
+            ],
+            "view/title": [
+                {
+                    "command": "aws.submitFeedback",
+                    "when": "view == aws.explorer",
+                    "group": "navigation@6"
+                },
+                {
+                    "command": "aws.refreshAwsExplorer",
+                    "when": "view == aws.explorer",
+                    "group": "navigation@5"
+                },
+                {
+                    "command": "aws.login",
+                    "when": "view == aws.explorer",
+                    "group": "1_account@1"
+                },
+                {
+                    "command": "aws.showRegion",
+                    "when": "view == aws.explorer",
+                    "group": "2_region@1"
+                },
+                {
+                    "command": "aws.hideRegion",
+                    "when": "view == aws.explorer",
+                    "group": "2_region@2"
+                },
+                {
+                    "command": "aws.lambda.createNewSamApp",
+                    "when": "view == aws.explorer",
+                    "group": "3_lambda@1"
+                },
+                {
+                    "command": "aws.deploySamApplication",
+                    "when": "view == aws.explorer",
+                    "group": "3_lambda@2"
+                },
+                {
+                    "command": "aws.quickStart",
+                    "when": "view == aws.explorer",
+                    "group": "y_quickStart@1"
+                },
+                {
+                    "command": "aws.help",
+                    "when": "view == aws.explorer",
+                    "group": "z_externalLinks@1"
+                },
+                {
+                    "command": "aws.github",
+                    "when": "view == aws.explorer",
+                    "group": "z_externalLinks@2"
+                },
+                {
+                    "command": "aws.createIssueOnGitHub",
+                    "when": "view == aws.explorer",
+                    "group": "z_externalLinks@3"
+                },
+                {
+                    "command": "aws.submitFeedback",
+                    "when": "view == aws.explorer",
+                    "group": "z_externalLinks@4"
+                },
+                {
+                    "command": "aws.refreshCdkExplorer",
+                    "when": "view == aws.cdk.explorer",
+                    "group": "navigation@5"
+                },
+                {
+                    "command": "aws.cdk.help",
+                    "when": "view == aws.cdk.explorer",
+                    "group": "z_externalLinks@2"
+                },
+                {
+                    "command": "aws.cdk.provideFeedback",
+                    "when": "view == aws.cdk.explorer",
+                    "group": "z_externalLinks@3"
+                },
+                {
+                    "command": "aws.aboutToolkit",
+                    "when": "view == aws.explorer",
+                    "group": "zz_about@1"
+                }
+            ],
+            "view/item/context": [
+                {
+                    "command": "aws.invokeLambda",
+                    "when": "view == aws.explorer && viewItem =~ /^(awsRegionFunctionNode|awsCloudFormationFunctionNode)$/",
+                    "group": "0@1"
+                },
+                {
+                    "command": "aws.deleteLambda",
+                    "when": "view == aws.explorer && viewItem == awsRegionFunctionNode",
+                    "group": "2@1"
+                },
+                {
+                    "command": "aws.deleteCloudFormation",
+                    "when": "view == aws.explorer && viewItem == awsCloudFormationNode",
+                    "group": "2@5"
+                },
+                {
+                    "command": "aws.searchSchema",
+                    "when": "view == aws.explorer && viewItem == awsSchemasNode",
+                    "group": "0@1"
+                },
+                {
+                    "command": "aws.searchSchemaPerRegistry",
+                    "when": "view == aws.explorer && viewItem == awsRegistryItemNode",
+                    "group": "0@1"
+                },
+                {
+                    "command": "aws.viewSchemaItem",
+                    "when": "view == aws.explorer && viewItem == awsSchemaItemNode",
+                    "group": "0@1"
+                },
+                {
+                    "command": "aws.downloadStateMachineDefinition",
+                    "when": "view == aws.explorer && viewItem == awsStateMachineNode",
+                    "group": "0@1"
+                },
+                {
+                    "command": "aws.executeStateMachine",
+                    "when": "view == aws.explorer && viewItem == awsStateMachineNode",
+                    "group": "0@2"
+                },
+                {
+                    "command": "aws.copyArn",
+                    "when": "view == aws.explorer && viewItem =~ /^(awsRegionFunctionNode|awsCloudFormationFunctionNode|awsStateMachineNode|awsCloudFormationNode)$/",
+                    "group": "1@1"
+                },
+                {
+                    "command": "aws.downloadSchemaItemCode",
+                    "when": "view == aws.explorer && viewItem == awsSchemaItemNode",
+                    "group": "1@1"
+                },
+                {
+                    "command": "aws.showErrorDetails",
+                    "when": "view == aws.explorer && viewItem == awsErrorNode",
+                    "group": "0@5"
+                },
+                {
+                    "command": "aws.hideRegion",
+                    "group": "0@1",
+                    "when": "view == aws.explorer && viewItem == awsRegionNode"
+                }
+            ]
+        },
+        "commands": [
+            {
+                "command": "aws.lambda.createNewSamApp",
+                "title": "%AWS.command.createNewSamApp%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.login",
+                "title": "%AWS.command.login%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.credential.profile.create",
+                "title": "%AWS.command.credential.profile.create%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.logout",
+                "title": "%AWS.command.logout%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.createIssueOnGitHub",
+                "title": "%AWS.command.createIssueOnGitHub%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.cdk.provideFeedback",
+                "title": "%AWS.command.cdk.provideFeedback%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.cdk.help",
+                "title": "%AWS.command.cdk.help%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.showRegion",
+                "title": "%AWS.command.showRegion%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.hideRegion",
+                "title": "%AWS.command.hideRegion%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.invokeLambda",
+                "title": "%AWS.command.invokeLambda%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.deleteLambda",
+                "title": "%AWS.command.deleteLambda%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.deploySamApplication",
+                "title": "%AWS.command.deploySamApplication%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.submitFeedback",
+                "title": "%AWS.command.submitFeedback%",
+                "category": "AWS",
+                "icon": {
+                    "dark": "third-party/resources/from-vscode/dark/feedback.svg",
+                    "light": "third-party/resources/from-vscode/light/feedback.svg"
+                }
+            },
+            {
+                "command": "aws.refreshAwsExplorer",
+                "title": "%AWS.command.refreshAwsExplorer%",
+                "category": "AWS",
+                "icon": {
+                    "dark": "third-party/resources/from-vscode-icons/dark/refresh.svg",
+                    "light": "third-party/resources/from-vscode-icons/light/refresh.svg"
+                }
+            },
+            {
+                "command": "aws.samcli.detect",
+                "title": "%AWS.command.samcli.detect%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.deleteCloudFormation",
+                "title": "%AWS.command.deleteCloudFormation%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.downloadStateMachineDefinition",
+                "title": "%AWS.command.downloadStateMachineDefinition%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.executeStateMachine",
+                "title": "%AWS.command.executeStateMachine%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.copyArn",
+                "title": "%AWS.command.copyArn%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.viewSchemaItem",
+                "title": "%AWS.command.viewSchemaItem%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.searchSchema",
+                "title": "%AWS.command.searchSchema%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.searchSchemaPerRegistry",
+                "title": "%AWS.command.searchSchemaPerRegistry%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.downloadSchemaItemCode",
+                "title": "%AWS.command.downloadSchemaItemCode%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.showErrorDetails",
+                "title": "%AWS.command.showErrorDetails%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.viewLogs",
+                "title": "%AWS.command.viewLogs%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.help",
+                "title": "%AWS.command.help%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.github",
+                "title": "%AWS.command.github%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.quickStart",
+                "title": "%AWS.command.quickStart%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.refreshCdkExplorer",
+                "title": "%AWS.command.refreshCdkExplorer%",
+                "category": "AWS",
+                "icon": {
+                    "dark": "third-party/resources/from-vscode-icons/dark/refresh.svg",
+                    "light": "third-party/resources/from-vscode-icons/light/refresh.svg"
+                }
+            },
+            {
+                "command": "aws.stepfunctions.createStateMachineFromTemplate",
+                "title": "%AWS.command.stepFunctions.createStateMachineFromTemplate%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.stepfunctions.publishStateMachine",
+                "title": "%AWS.command.stepFunctions.publishStateMachine%",
+                "category": "AWS"
+            },
+            {
+                "command": "aws.previewStateMachine",
+                "title": "%AWS.command.stepFunctions.previewStateMachine%",
+                "category": "AWS",
+                "icon": {
+                    "light": "resources/light/stepfunctions/preview.svg",
+                    "dark": "resources/dark/stepfunctions/preview.svg"
+                }
+            },
+            {
+                "command": "aws.aboutToolkit",
+                "title": "%AWS.command.aboutToolkit%",
+                "category": "AWS"
+            }
+        ],
+        "jsonValidation": [
+            {
+                "fileMatch": ".aws/templates.json",
+                "url": "./dist/src/templates/templates.json"
+            },
+            {
+                "fileMatch": "*ecs-task-def.json",
+                "url": "https://ecs-intellisense.s3-us-west-2.amazonaws.com/task-definition/schema.json"
+            }
+        ],
+        "languages": [
+            {
+                "id": "asl",
+                "extensions": [
+                    ".asl.json",
+                    ".asl"
+                ],
+                "aliases": [
+                    "Amazon States Language"
+                ]
+            }
+        ],
+        "keybindings": [
+            {
+                "command": "aws.previewStateMachine",
+                "key": "ctrl+shift+v",
+                "mac": "cmd+shift+v",
+                "when": "editorTextFocus && editorLangId == asl"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "asl",
+                "scopeName": "source.asl",
+                "path": "./syntaxes/ASL.tmLanguage"
+            }
+        ]
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run clean && npm run lint && webpack --mode production && npm run buildScripts",
+        "bundleDeps": "node ./build-scripts/bundleDeps.js",
+        "clean": "node ./build-scripts/clean.js dist",
+        "generateNonCodeFiles": "ts-node ./build-scripts/generateNonCodeFiles.ts",
+        "reset": "node ./build-scripts/clean.js dist node_modules && npm install",
+        "copyNonCodeFiles": "node ./build-scripts/copyNonCodeFiles.js",
+        "copyExtensionMain": "node ./build-scripts/copyExtensionMain.js",
+        "buildScripts": "npm run bundleDeps && npm run copyExtensionMain && npm run copyNonCodeFiles && npm run generateNonCodeFiles",
+        "compile": "webpack --mode development && npm run buildScripts",
+        "recompile": "npm run clean && npm run compile",
+        "watch": "npm run buildScripts && tsc -watch -p ./",
+        "postinstall": "ts-node ./build-scripts/generateServiceClient.ts && npm run generateTelemetry && npm run generateConfigurationAttributes",
+        "testCompile": "tsc -p ./ && npm run buildScripts",
+        "test": "npm run testCompile && ts-node ./test-scripts/test.ts",
+        "integrationTest": "npm run testCompile && ts-node ./test-scripts/integrationTest.ts",
+        "lint": "eslint -c .eslintrc.js --ext .ts .",
+        "lintfix": "eslint -c .eslintrc.js --fix --ext .ts .",
+        "package": "vsce package",
+        "install-plugin": "vsce package -o aws-toolkit-vscode-test.vsix && code --install-extension aws-toolkit-vscode-test.vsix",
+        "generateTelemetry": "node node_modules/@aws-toolkits/telemetry/lib/generateTelemetry.js --extraInput=src/shared/telemetry/vscodeTelemetry.json --output=src/shared/telemetry/telemetry.gen.ts",
+        "generateConfigurationAttributes": "ts-node ./build-scripts/generateConfigurationAttributes.ts",
+        "newChange": "ts-node ./build-scripts/newChange.ts",
+        "createRelease": "ts-node ./build-scripts/createRelease.ts"
+    },
+    "devDependencies": {
+        "@aws-toolkits/telemetry": "0.0.20",
+        "@types/adm-zip": "^0.4.32",
+        "@types/async-lock": "^1.1.0",
+        "@types/cross-spawn": "^6.0.0",
+        "@types/del": "^3.0.1",
+        "@types/fs-extra": "^8.0.1",
+        "@types/glob": "^7.1.1",
+        "@types/js-yaml": "^3.12.0",
+        "@types/lodash": "^4.14.136",
+        "@types/lolex": "^3.1.1",
+        "@types/marked": "^0.6.5",
+        "@types/mocha": "^7.0.2",
+        "@types/node": "^10.14.22",
+        "@types/readline-sync": "^1.4.3",
+        "@types/request": "^2.47.1",
+        "@types/semver": "^5.5.0",
+        "@types/sinon": "^7.0.13",
+        "@types/tcp-port-used": "^1.0.0",
+        "@types/uuid": "^3.4.4",
+        "@types/vscode": "^1.43.0",
+        "@types/xml2js": "^0.4.3",
+        "@typescript-eslint/eslint-plugin": "^2.27.0",
+        "@typescript-eslint/eslint-plugin-tslint": "^2.27.0",
+        "@typescript-eslint/parser": "^2.27.0",
+        "circular-dependency-plugin": "^5.2.0",
+        "decache": "^4.4.0",
+        "eslint": "^6.8.0",
+        "eslint-config-prettier": "^6.10.1",
+        "eslint-plugin-header": "^3.0.0",
+        "eslint-plugin-no-null": "^1.0.2",
+        "filemanager-webpack-plugin": "^2.0.5",
+        "glob": "^7.1.4",
+        "husky": "^2.3.0",
+        "istanbul": "^0.4.5",
+        "json-schema-to-typescript": "^8.2.0",
+        "lolex": "^4.2.0",
+        "marked": "^0.7.0",
+        "mocha": "^7.1.1",
+        "mocha-junit-reporter": "^1.23.3",
+        "mocha-multi-reporters": "^1.1.7",
+        "prettier": "^1.19.1",
+        "pretty-quick": "^1.10.0",
+        "readline-sync": "^1.4.9",
+        "remap-istanbul": "^0.12.0",
+        "sinon": "^7.4.2",
+        "source-map-support": "^0.5.19",
+        "terser-webpack-plugin": "^2.3.1",
+        "ts-loader": "^6.2.0",
+        "ts-mockito": "^2.5.0",
+        "ts-node": "^8.5.2",
+        "vsce": "^1.69.0",
+        "vscode-nls-dev": "^3.3.1",
+        "vscode-test": "^1.3.0",
+        "webpack": "^4.41.2",
+        "webpack-cli": "^3.3.10"
+    },
+    "dependencies": {
+        "adm-zip": "^0.4.13",
+        "amazon-states-language-service": "^1.0.2",
+        "async-lock": "^1.1.3",
+        "aws-sdk": "^2.581.0",
+        "cloudformation-schema-js-yaml": "^1.0.1",
+        "cross-spawn": "^6.0.5",
+        "del": "^3.0.0",
+        "fs-extra": "^8.1.0",
+        "handlebars": "^4.5.3",
+        "immutable": "^4.0.0-rc.12",
+        "js-yaml": "^3.13.1",
+        "jsonc-parser": "^2.0.2",
+        "lodash": "^4.17.15",
+        "moment": "^2.24.0",
+        "original-fs": "^1.1.0",
+        "portfinder": "^1.0.25",
+        "request": "^2.88.0",
+        "semver": "^5.6.0",
+        "sleep-promise": "^8.0.1",
+        "strip-ansi": "^5.2.0",
+        "tcp-port-used": "^1.0.1",
+        "triple-beam": "^1.3.0",
+        "typescript": "^3.7.2",
+        "uuid": "^3.3.2",
+        "vscode-debugadapter": "1.40.0-pre.2",
+        "vscode-debugprotocol": "1.40.0-pre.1",
+        "vscode-languageclient": "^6.1.1",
+        "vscode-languageserver": "^6.1.1",
+        "vscode-languageserver-textdocument": "^1.0.1",
+        "vscode-nls": "^4.1.1",
+        "vue": "^2.5.16",
+        "winston": "^3.2.1",
+        "winston-transport": "^4.3.0",
+        "xml2js": "^0.4.19"
+    },
+    "prettier": {
+        "printWidth": 120,
+        "trailingComma": "es5",
+        "tabWidth": 4,
+        "singleQuote": true,
+        "semi": false,
+        "bracketSpacing": true,
+        "arrowParens": "avoid",
+        "endOfLine": "lf"
+    },
+    "husky": {
+        "hooks": {
+            "pre-commit": "(git secrets --pre_commit_hook -- \"$@\" || echo 'Please install git-secrets https://github.com/awslabs/git-secrets to check for accidentally commited secrets!') && pretty-quick --staged"
+        }
+    }
+}
