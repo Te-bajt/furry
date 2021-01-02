@@ -1,0 +1,46 @@
+version: 0.2
+
+env:
+    variables:
+        AWS_TOOLKIT_TEST_USER_DIR: '/tmp/'
+        AWS_TOOLKIT_TEST_NO_COLOR: '1'
+        NO_COVERAGE: 'true'
+
+phases:
+    install:
+        runtime-versions:
+            nodejs: 10
+            docker: 19
+            dotnet: 3.1
+
+        commands:
+            - '>/dev/null add-apt-repository universe'
+            - '>/dev/null apt-get -qq install -y apt-transport-https'
+            - '>/dev/null apt-get -qq update'
+            # Install other needed dependencies
+            - '>/dev/null apt-get -qq install -y jq python2.7 python-pip python3.6 python3.7 python3.8 python3-pip python3-distutils'
+            - '>/dev/null apt-get -qq install -y libgtk-3-dev libxss1 xvfb libnss3-dev libasound2 libasound2-plugins libsecret-1-0'
+            - '>/dev/null pip3 install --upgrade aws-sam-cli'
+            - '>/dev/null pip3 install --upgrade awscli'
+            - '>/dev/null pip3 install pylint'
+            # login to DockerHub so we don't get throttled
+            - docker login --username $(echo $DOCKER_HUB_TOKEN | jq -r '.username') --password $(echo $DOCKER_HUB_TOKEN | jq -r '.password') || true
+
+    pre_build:
+        commands:
+            # make sure that SAM is in the path, is not automatically done on CodeBuild
+            - USER_BASE_PATH=$(python -m site --user-base) && export PATH=$PATH:$USER_BASE_PATH/bin
+            # start Docker
+            - nohup /usr/local/bin/dockerd --host=unix:///var/run/docker.sock --host=tcp://127.0.0.1:2375 --storage-driver=overlay&
+            - timeout 15 sh -c "until docker info; do echo .; sleep 1; done"
+
+    build:
+        commands:
+            - npm install --unsafe-perm
+            - xvfb-run npm run integrationTest
+
+reports:
+    integ-test:
+        files:
+            - '*'
+        base-directory: '.test-reports'
